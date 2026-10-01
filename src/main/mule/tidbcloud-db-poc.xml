@@ -1,0 +1,113 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:vm="http://www.mulesoft.org/schema/mule/vm"
+	xmlns:jms="http://www.mulesoft.org/schema/mule/jms" xmlns:kafka="http://www.mulesoft.org/schema/mule/kafka"
+	xmlns:batch="http://www.mulesoft.org/schema/mule/batch"
+	xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xmlns:db="http://www.mulesoft.org/schema/mule/db" xmlns:http="http://www.mulesoft.org/schema/mule/http" xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="
+http://www.mulesoft.org/schema/mule/batch http://www.mulesoft.org/schema/mule/batch/current/mule-batch.xsd http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
+http://www.mulesoft.org/schema/mule/kafka http://www.mulesoft.org/schema/mule/kafka/current/mule-kafka.xsd
+http://www.mulesoft.org/schema/mule/jms http://www.mulesoft.org/schema/mule/jms/current/mule-jms.xsd
+http://www.mulesoft.org/schema/mule/vm http://www.mulesoft.org/schema/mule/vm/current/mule-vm.xsd">
+	<db:config name="Database_Config" doc:name="Database Config" doc:id="737c8f69-4aac-4a2b-a3a4-10ca542515e6" >
+		<db:my-sql-connection host="gateway01.ap-southeast-1.prod.aws.tidbcloud.com" port="4000" user="4VHnCUXuqsZrY92.root" password="LkdZuOxisqqGqtI5" database="test"/>
+	
+</db:config>
+	<http:listener-config name="HTTP_Listener_config" doc:name="HTTP Listener config" doc:id="313f9ed0-83bb-426a-9811-e68d063fef1d" >
+		<http:listener-connection host="0.0.0.0" port="8081" />
+	</http:listener-config>
+	<!-- <jms:config name="JMS_Config" doc:name="JMS Config" doc:id="cb500d5e-6244-4184-b1ee-2213d4a321dc" >
+		<jms:active-mq-connection username="admin" password="admin" >
+			<jms:factory-configuration brokerUrl="tcp://localhost:61616" />
+		</jms:active-mq-connection>
+	</jms:config> -->
+	<vm:config name="VM_Config" doc:name="VM Config" doc:id="84aefc85-772e-42ff-a5e8-0c9cb274b733" >
+		<vm:queues >
+			<vm:queue queueName="muleAppQueue" queueType="PERSISTENT" />
+		</vm:queues>
+	</vm:config>
+	<flow name="producer-tidbcloud-db-pocFlow" doc:id="3f3c950c-86d3-483c-91fd-a7a679ebd5d5" >
+		<http:listener doc:name="Listener" doc:id="c9689a66-67a7-46c7-ac5b-53000860b101" config-ref="HTTP_Listener_config" path="/test"/>
+		<ee:transform doc:name="Load Classpath File">
+        <ee:message>
+            <ee:set-payload><![CDATA[%dw 2.0
+output application/csv
+---
+readUrl(
+    "classpath://mulesoft_batch_sample_1M.csv",
+    "application/csv",
+    {streaming: true}
+)]]></ee:set-payload>
+        </ee:message>
+    </ee:transform>
+		<batch:job jobName="tidbcloud-db-pocBatch_Job" doc:id="3243beba-4f79-443d-a1df-463d981413cf" blockSize="500">
+			<batch:process-records >
+				<batch:step name="Batch_Step1" doc:id="5f0d59df-9637-4cfa-b84c-18d15be99b64" >
+					<batch:aggregator doc:name="Batch Aggregator" doc:id="ef0503a7-4e63-417a-bc79-586b562080fe" size="100">
+						<vm:publish queueName="muleAppQueue" doc:name="Publish" doc:id="4843dba1-c4c3-47dc-a0a8-71104fb7556b" config-ref="VM_Config">
+							<vm:content><![CDATA[#[output application/json --- payload]]]></vm:content>
+						</vm:publish>
+					</batch:aggregator>
+				</batch:step>
+			</batch:process-records>
+		</batch:job>
+		<logger level="INFO" doc:name="Logger" doc:id="806433ea-6a1c-407c-b85b-305dcfbe4b29" message="Message published to queue: #[payload]"/>
+	</flow>
+	<flow name="consumer-tidbcloud-db-pocFlow" doc:id="c25017aa-9a43-43b7-b4c9-d1f29aebe537" >
+		<vm:listener doc:name="Listener" doc:id="dc96cd4d-9b35-442d-a394-923431bc2f3c" config-ref="VM_Config" queueName="muleAppQueue">
+			<vm:response >
+				<vm:content ><![CDATA[#[output application/json --- payload]]]></vm:content>
+			</vm:response>
+		</vm:listener>
+		<ee:transform doc:name="Transform Message" doc:id="b80b514b-a859-4a3a-a235-71b038028936" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/java
+---
+payload]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<logger level="INFO" doc:name="Logger" doc:id="97a0a072-1c75-4266-9931-2aea4e0a7365" message='#[%dw 2.0&#10;output application/json&#10;---&#10;{&#10;    payloadType: typeOf(payload),&#10;    mimeType: attributes.mimeType default "N/A",&#10;    recordCount: sizeOf(payload)&#10;}]'/>
+		<batch:job jobName="streamline-1m-records-batch-job" maxFailedRecords="-1" blockSize="500">
+        <batch:process-records>
+				<batch:step name="Batch_Step" doc:id="2d43254a-729f-482e-a4b5-1c65afae9cd5">
+					<ee:transform doc:name="Transform Message" doc:id="5d3b9684-e102-43ea-991c-a91ce448e054">
+						<ee:message>
+							<ee:set-payload><![CDATA[%dw 2.0
+output application/java
+var record = read(payload, "application/csv", {"header": true})[0]
+---
+{
+    CustomerID:  record.CustomerID,
+    FirstName:   record.FirstName,
+    LastName:    record.LastName,
+    Email:       record.Email,
+    Phone:       record.Phone,
+    City:        record.City,
+    AccountType: record.AccountType,
+    Balance:     record.Balance,
+    CreatedDate: record.CreatedDate
+}
+]]></ee:set-payload>
+						</ee:message>
+					</ee:transform>
+					<logger level="INFO" doc:name="Logger" doc:id="bc66e670-e6e5-444b-be95-b19202140ca6" message="#[output application/json --- payload]" />
+					<batch:aggregator doc:name="Batch Aggregator" doc:id="4239d8f1-2a2e-4c5b-a83e-545439777bd7" size="100">
+						<db:bulk-insert doc:name="Bulk insert" doc:id="a74f5376-9b49-4268-972c-708514da838c" config-ref="Database_Config">
+							<db:sql><![CDATA[INSERT INTO customers (CustomerID, FirstName, LastName, Email, Phone, City, AccountType, Balance, CreatedDate) 
+VALUES (:CustomerID, :FirstName, :LastName, :Email, :Phone, :City, :AccountType, :Balance, :CreatedDate)]]></db:sql>
+						</db:bulk-insert>
+					</batch:aggregator>
+				
+
+</batch:step>
+        </batch:process-records>
+        <batch:on-complete>
+            <logger level="INFO" doc:name="Final Summary" message="#['--- BATCH TEST RUN SUMMARY ---' &#10;                     ++ '\n Total Records Loaded into DB: ' ++ (payload.loadedRecords default 0)&#10;                     ++ '\n Total Records Failed: ' ++ (payload.failedRecords default 0)&#10;                     ++ '\n Elapsed Processing Time (ms): ' ++ (payload.elapsedTimeInMillis default 0)]" />
+        </batch:on-complete>
+    </batch:job>
+	</flow>
+
+</mule>
