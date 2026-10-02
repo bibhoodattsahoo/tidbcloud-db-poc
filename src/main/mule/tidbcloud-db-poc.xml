@@ -29,23 +29,20 @@ http://www.mulesoft.org/schema/mule/vm http://www.mulesoft.org/schema/mule/vm/cu
 		</vm:queues>
 	</vm:config>
 	<flow name="producer-tidbcloud-db-pocFlow" doc:id="3f3c950c-86d3-483c-91fd-a7a679ebd5d5" >
-		<http:listener doc:name="Listener" doc:id="c9689a66-67a7-46c7-ac5b-53000860b101" config-ref="HTTP_Listener_config" path="/test"/>
+		<http:listener doc:name="Listener" doc:id="c9689a66-67a7-46c7-ac5b-53000860b101" config-ref="HTTP_Listener_config" path="/test">
+		</http:listener>
 		<ee:transform doc:name="Load Classpath File">
         <ee:message>
             <ee:set-payload><![CDATA[%dw 2.0
 output application/csv
 ---
-readUrl(
-    "classpath://mulesoft_batch_sample_1M.csv",
-    "application/csv",
-    {streaming: true}
-)]]></ee:set-payload>
+readUrl("classpath://mulesoft_batch_sample_1M.csv", "application/csv")]]></ee:set-payload>
         </ee:message>
     </ee:transform>
-		<batch:job jobName="tidbcloud-db-pocBatch_Job" doc:id="3243beba-4f79-443d-a1df-463d981413cf" blockSize="500">
+		<batch:job jobName="tidbcloud-db-pocBatch_Job" doc:id="98f87655-996d-4a22-bd2e-1bd0f2e1f019" blockSize="500">
 			<batch:process-records >
-				<batch:step name="Batch_Step1" doc:id="5f0d59df-9637-4cfa-b84c-18d15be99b64" >
-					<batch:aggregator doc:name="Batch Aggregator" doc:id="ef0503a7-4e63-417a-bc79-586b562080fe" size="100">
+				<batch:step name="Batch_Step1" doc:id="32f7bae0-938b-4be4-ae32-69e9bd5a6555" >
+					<batch:aggregator doc:name="Batch Aggregator" doc:id="07082243-f786-43a6-a221-568b3b9cdc0d" size="100">
 						<vm:publish queueName="muleAppQueue" doc:name="Publish" doc:id="4843dba1-c4c3-47dc-a0a8-71104fb7556b" config-ref="VM_Config">
 							<vm:content><![CDATA[#[output application/json --- payload]]]></vm:content>
 						</vm:publish>
@@ -53,7 +50,7 @@ readUrl(
 				</batch:step>
 			</batch:process-records>
 		</batch:job>
-		<logger level="INFO" doc:name="Logger" doc:id="806433ea-6a1c-407c-b85b-305dcfbe4b29" message="Message published to queue: #[payload]"/>
+		<logger level="INFO" doc:name="Logger" doc:id="806433ea-6a1c-407c-b85b-305dcfbe4b29" message='#[output application/json&#10;---&#10;{&#10;    "LogPoint": "Batch Step Processing",&#10;    "CustomerID": payload.CustomerID,&#10;    "RecordInfo": "Processing record for " ++ (payload.FirstName default "") ++ " " ++ (payload.LastName default ""),&#10;    "CurrentBalance": payload.Balance&#10;}]'/>
 	</flow>
 	<flow name="consumer-tidbcloud-db-pocFlow" doc:id="c25017aa-9a43-43b7-b4c9-d1f29aebe537" >
 		<vm:listener doc:name="Listener" doc:id="dc96cd4d-9b35-442d-a394-923431bc2f3c" config-ref="VM_Config" queueName="muleAppQueue">
@@ -61,7 +58,7 @@ readUrl(
 				<vm:content ><![CDATA[#[output application/json --- payload]]]></vm:content>
 			</vm:response>
 		</vm:listener>
-		<ee:transform doc:name="Transform Message" doc:id="b80b514b-a859-4a3a-a235-71b038028936" >
+		<ee:transform doc:name="Transform Message" doc:id="439d1a65-c6d6-4394-9d89-293c6109e532" >
 			<ee:message >
 				<ee:set-payload ><![CDATA[%dw 2.0
 output application/java
@@ -69,13 +66,13 @@ output application/java
 payload]]></ee:set-payload>
 			</ee:message>
 		</ee:transform>
-		<logger level="INFO" doc:name="Logger" doc:id="97a0a072-1c75-4266-9931-2aea4e0a7365" message='#[%dw 2.0&#10;output application/json&#10;---&#10;{&#10;    payloadType: typeOf(payload),&#10;    mimeType: attributes.mimeType default "N/A",&#10;    recordCount: sizeOf(payload)&#10;}]'/>
+		<logger level="INFO" doc:name="Logger" doc:id="97a0a072-1c75-4266-9931-2aea4e0a7365" message='#[%dw 2.0&#10;output application/json&#10;---&#10;{&#10;    payloadType: typeOf(payload),&#10;    mimeType: attributes.mimeType default "N/A",&#10;    recordCount: sizeOf(payload)&#10;}]' />
 		<batch:job jobName="streamline-1m-records-batch-job" maxFailedRecords="-1" blockSize="500">
         <batch:process-records>
 				<batch:step name="Batch_Step" doc:id="2d43254a-729f-482e-a4b5-1c65afae9cd5">
-					<ee:transform doc:name="Transform Message" doc:id="5d3b9684-e102-43ea-991c-a91ce448e054">
-						<ee:message>
-							<ee:set-payload><![CDATA[%dw 2.0
+					<ee:transform doc:name="Transform Message" doc:id="ef5a7d04-8cfe-4261-9c2d-69f803eb0271" >
+						<ee:message >
+							<ee:set-payload ><![CDATA[%dw 2.0
 output application/java
 var record = read(payload, "application/csv", {"header": true})[0]
 ---
@@ -87,10 +84,17 @@ var record = read(payload, "application/csv", {"header": true})[0]
     Phone:       record.Phone,
     City:        record.City,
     AccountType: record.AccountType,
-    Balance:     record.Balance,
-    CreatedDate: record.CreatedDate
-}
-]]></ee:set-payload>
+    Balance:
+        if (isEmpty(record.Balance))
+            null
+        else
+            record.Balance as Number,
+    CreatedDate:
+        if (isEmpty(record.CreatedDate))
+            null
+        else
+            record.CreatedDate
+}]]></ee:set-payload>
 						</ee:message>
 					</ee:transform>
 					<logger level="INFO" doc:name="Logger" doc:id="bc66e670-e6e5-444b-be95-b19202140ca6" message="#[output application/json --- payload]" />
@@ -99,6 +103,7 @@ var record = read(payload, "application/csv", {"header": true})[0]
 							<db:sql><![CDATA[INSERT INTO customers (CustomerID, FirstName, LastName, Email, Phone, City, AccountType, Balance, CreatedDate) 
 VALUES (:CustomerID, :FirstName, :LastName, :Email, :Phone, :City, :AccountType, :Balance, :CreatedDate)]]></db:sql>
 						</db:bulk-insert>
+						<logger level="INFO" doc:name="Logger" doc:id="698f630c-49c1-43e8-9c5b-8f1b28690a89" message='#[payload]'/>
 					</batch:aggregator>
 				
 
